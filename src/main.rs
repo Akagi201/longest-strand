@@ -1,7 +1,10 @@
 use std::fs;
 
+use rayon::prelude::*;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
+
 fn main() {
-    // Get the list of files from the command line arguments
     // Get the list of file names that match the pattern "sample.*" in the "samples" directory
     let dir = "samples";
     let files: Vec<String> = fs::read_dir(dir)
@@ -20,33 +23,44 @@ fn main() {
         contents.push(file_contents);
     }
 
+    let start = Instant::now();
     // Initialize variables to track the longest strand
-    let mut longest_strand = 0;
-    let mut file_names = Vec::new();
-    let mut offsets = Vec::new();
+    let longest_strand = Arc::new(Mutex::new(0_usize));
+    let file_names = Arc::new(Mutex::new(Vec::new()));
+    let offsets = Arc::new(Mutex::new(Vec::new()));
 
-    // Compare each file to every other file
-    for i in 0..files.len() {
-        for j in i + 1..files.len() {
-            // Find the longest common substring using the LCS algorithm
-            let lcs = lcs(&contents[i], &contents[j]);
+    // Compare each file to every other file in parallel
+    files.par_iter().enumerate().for_each(|(i, _)| {
+        files[i + 1..]
+            .par_iter()
+            .enumerate()
+            .for_each(|(j, file_j)| {
+                let file_i = &files[i];
+                let lcs = lcs(&contents[i], &contents[j]);
 
-            // Update the longest strand if a longer one is found
-            if lcs.len() > longest_strand {
-                longest_strand = lcs.len();
-                file_names = vec![&files[i], &files[j]];
-                offsets = vec![
-                    contents[i].iter().position(|&b| b == lcs[0]).unwrap(),
-                    contents[j].iter().position(|&b| b == lcs[0]).unwrap(),
-                ];
-            }
-        }
-    }
+                // Update the longest strand if a longer one is found
+                if lcs.len() > *longest_strand.lock().unwrap() {
+                    *longest_strand.lock().unwrap() = lcs.len();
+                    file_names.lock().unwrap().clear();
+                    file_names
+                        .lock()
+                        .unwrap()
+                        .extend_from_slice(&[file_i, file_j]);
+                    offsets.lock().unwrap().clear();
+                    offsets.lock().unwrap().extend_from_slice(&[
+                        contents[i].iter().position(|&b| b == lcs[0]).unwrap(),
+                        contents[j].iter().position(|&b| b == lcs[0]).unwrap(),
+                    ]);
+                }
+            });
+    });
+    let duration = start.elapsed();
 
     // Output the results
-    println!("Longest strand: {longest_strand} bytes");
-    println!("File names: {file_names:?}");
-    println!("Offsets: {offsets:?}");
+    println!("Longest strand: {} bytes", *longest_strand.lock().unwrap());
+    println!("File names: {:?}", *file_names.lock().unwrap());
+    println!("Offsets: {:?}", *offsets.lock().unwrap());
+    println!("duration: {duration:?}");
 }
 
 fn lcs(x: &[u8], y: &[u8]) -> Vec<u8> {
