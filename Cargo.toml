@@ -13,4 +13,4 @@ overflow-checks = false
 
 [dependencies]
 crossbeam = "0.8.2"
-rayon = "1.6.1"
+rayon = "1.7.0"
